@@ -1,69 +1,77 @@
 import os
 import discord
+import requests
 from dotenv import load_dotenv
 from aiohttp import web
 import json
 import random
+import aiohttp
+import asyncio
 
 load_dotenv()
 
-# 環境変数からトークンとチャンネルIDを読み込み
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID'))
 
 intents = discord.Intents.default()
-intents.message_content = True
-
 client = discord.Client(intents=intents)
 
-async def handle_github_webhook(request):
+# 写真をDiscordにアップロードするための非同期関数
+async def upload_to_discord(user_name, photo_data):
     try:
-        data = await request.json()
-        print("Received GitHub webhook event.")
+        score = random.randint(0, 100)
+        channel = client.get_channel(DISCORD_CHANNEL_ID)
 
-        # プッシュイベントかどうかのチェック
-        if 'commits' in data:
-            for commit in data['commits']:
-                for added_file in commit.get('added', []):
-                    # 画像ファイルかどうかのチェック
-                    if added_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                        repo_url = data['repository']['html_url']
-                        image_url = f"{repo_url}/raw/main/{added_file}"
-                        user_name = commit['author']['name']
-                        
-                        # 0から100までのランダムな点数を生成
-                        score = random.randint(0, 100)
+        if not channel:
+            print(f"Error: Channel with ID {DISCORD_CHANNEL_ID} not found.")
+            return
 
-                        # Discordに送信するメッセージを作成
-                        message_content = (
-                            f"**新しい写真がアップロードされました！**\n"
-                            f"**アップロードした人:** {user_name}\n"
-                            f"**ランダムな点数:** {score}点"
-                        )
+        # Discordに送信するメッセージを作成
+        message_content = (
+            f"**新しい写真がアップロードされました！**\n"
+            f"**アップロードした人:** {user_name}\n"
+            f"**ランダムな点数:** {score}点"
+        )
+        
+        # バイナリデータとしてファイルを送信
+        discord_file = discord.File(photo_data, filename="uploaded_photo.jpg")
 
-                        channel = client.get_channel(DISCORD_CHANNEL_ID)
-                        if channel:
-                            # Embedを使ってメッセージと画像を送信
-                            embed = discord.Embed(
-                                title="画像アップロード通知",
-                                description=message_content,
-                                color=discord.Color.blue()
-                            )
-                            embed.set_image(url=image_url)
-                            await channel.send(embed=embed)
-                            print(f"Sent image to Discord: {image_url}")
-    except json.JSONDecodeError:
-        print("Invalid JSON received.")
-        return web.Response(text="Invalid JSON", status=400)
+        await channel.send(content=message_content, file=discord_file)
+        print("Sent image and message to Discord.")
+
     except Exception as e:
-        print(f"Error handling webhook: {e}")
-        return web.Response(text="Error", status=500)
-    
-    return web.Response(text="OK")
+        print(f"Error uploading to Discord: {e}")
+
+# HTMLからのアップロードを処理するハンドラ
+async def handle_upload(request):
+    try:
+        reader = await request.multipart()
+        
+        # フォームからデータを読み取る
+        field = await reader.next()
+        user_name = await field.read_text()
+        
+        field = await reader.next()
+        photo_data = await field.read()
+        
+        # Discordへのアップロードをタスクとして実行
+        asyncio.create_task(upload_to_discord(user_name, photo_data))
+        
+        return web.json_response({"status": "success", "message": "Upload received and processing"})
+
+    except Exception as e:
+        print(f"Error handling upload: {e}")
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
 
 async def start_webserver():
     app = web.Application()
-    app.router.add_post('/webhook', handle_github_webhook)
+    
+    # ルートパスに静的ファイル（HTML）を配信する
+    app.router.add_get('/', lambda r: web.FileResponse('./index.html'))
+    
+    # アップロード用のPOSTエンドポイント
+    app.router.add_post('/upload', handle_upload)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
@@ -73,6 +81,6 @@ async def start_webserver():
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
-    client.loop.create_task(start_webserver())
+    asyncio.create_task(start_webserver())
 
 client.run(DISCORD_BOT_TOKEN)
