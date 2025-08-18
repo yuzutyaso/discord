@@ -81,17 +81,14 @@
 <script>
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-
         const form = e.target;
         const formData = new FormData(form);
-
         const messageElement = document.getElementById('message');
         messageElement.textContent = '送信中...';
         messageElement.style.color = '#ffc107';
 
         try {
-            // **重要**: 以下のURLをRenderでデプロイしたサーバーのURLに置き換えてください
-            const response = await fetch('https://discord-tv24.onrender.com/upload', {
+            const response = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             });
