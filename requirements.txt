@@ -1,5 +1,4 @@
 fastapi
 uvicorn
 python-multipart
-discord.py
-python-dotenv
+aiohttp
