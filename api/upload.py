@@ -11,13 +11,9 @@ load_dotenv()
 # FastAPIアプリの初期化
 app = FastAPI()
 
-# Discord Botのクライアントを初期化
+# 環境変数からトークンとチャンネルIDを読み込み
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
-
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-bot_ready = asyncio.Event()
 
 # チャンネルIDを整数に変換
 try:
@@ -25,38 +21,24 @@ try:
 except (ValueError, TypeError):
     CHANNEL_ID = None
 
-# Botがログインするまで待機
-@client.event
-async def on_ready():
-    bot_ready.set()
-    print(f'Logged in as {client.user}')
+# Discord Botのクライアントを初期化
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
 
-async def run_bot():
+async def send_to_discord(user_name: str, photo_data: bytes):
+    """Discordにメッセージと画像を送信する非同期関数"""
     try:
-        await client.start(DISCORD_BOT_TOKEN)
-    except Exception as e:
-        print(f"Error starting bot: {e}")
-
-# Botの実行をバックグラウンドタスクとして開始
-asyncio.create_task(run_bot())
-
-@app.post("/api/upload")
-async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...)):
-    if not bot_ready.is_set():
-        await asyncio.wait_for(bot_ready.wait(), timeout=10.0)
-
-    try:
-        photo_data = await photo.read()
         score = random.randint(0, 100)
-        
         channel = client.get_channel(CHANNEL_ID)
+        
         if not channel:
-            return {"status": "error", "error": "Invalid channel ID or channel not found."}, 500
+            print(f"Error: Channel with ID {CHANNEL_ID} not found.")
+            return
 
-        # Discordに送信するメッセージを作成
         message_content = (
             f"**新しい写真がアップロードされました！**\n"
-            f"**アップロードした人:** {userName}\n"
+            f"**アップロードした人:** {user_name}\n"
+            f"**ランダムな点数:** {score}点"
         )
         
         discord_file = discord.File(photo_data, filename="uploaded_photo.jpg")
@@ -64,8 +46,30 @@ async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...))
         await channel.send(content=message_content, file=discord_file)
         print("Sent image and message to Discord.")
 
-        return {"status": "success", "message": "Upload received and processing"}
+    except Exception as e:
+        print(f"Error uploading to Discord: {e}")
 
+@app.post("/api/upload")
+async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...)):
+    if not DISCORD_BOT_TOKEN or not DISCORD_CHANNEL_ID:
+        return {"status": "error", "error": "Discord environment variables not set."}, 500
+
+    if CHANNEL_ID is None:
+        return {"status": "error", "error": "Invalid channel ID."}, 500
+
+    try:
+        # Botを起動し、Discordと接続
+        # この部分がVercelのライフサイクルに合わせて修正された重要な部分です
+        asyncio.create_task(client.start(DISCORD_BOT_TOKEN))
+        await client.wait_until_ready()
+        
+        photo_data = await photo.read()
+        await send_to_discord(userName, photo_data)
+        
+        # Botをシャットダウン
+        await client.close()
+
+        return {"status": "success", "message": "Upload received and processing"}
     except Exception as e:
         print(f"Error processing upload: {e}")
         return {"status": "error", "error": str(e)}, 500
