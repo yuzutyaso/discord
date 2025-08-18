@@ -3,15 +3,11 @@ import discord
 import asyncio
 import random
 from fastapi import FastAPI, UploadFile, File, Form
-from dotenv import load_dotenv
-
-# .envファイルを読み込み
-load_dotenv()
 
 # FastAPIアプリの初期化
 app = FastAPI()
 
-# 環境変数からトークンとチャンネルIDを読み込み
+# 環境変数をVercelのダッシュボードから直接読み込み
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
 
