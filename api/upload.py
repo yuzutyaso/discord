@@ -31,33 +31,43 @@ async def startup_event():
             # Botのバックグラウンドタスクを開始
             asyncio.create_task(client.start(DISCORD_BOT_TOKEN))
             bot_is_running = True
-            print("Discord Bot startup task created.")
+            print("INFO: Discord Bot startup task created.")
         except Exception as e:
-            print(f"Error starting Discord Bot: {e}")
+            print(f"ERROR: Error starting Discord Bot: {e}")
 
 @app.post("/api/upload")
 async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...)):
+    print("DEBUG: Received upload request.")
     if not client.is_ready():
+        print("DEBUG: Bot is not ready, waiting...")
         try:
             # Botがまだ準備できていない場合は待機
             await asyncio.wait_for(client.wait_until_ready(), timeout=15.0)
+            print("DEBUG: Bot is now ready.")
         except asyncio.TimeoutError:
-            print("Error: Bot failed to connect to Discord in time.")
+            print("ERROR: Bot failed to connect to Discord in time.")
             return {"status": "error", "error": "Bot connection timeout."}, 500
 
     # チャンネルIDを整数に変換
     try:
         channel_id = int(DISCORD_CHANNEL_ID)
+        print(f"DEBUG: Channel ID successfully converted to integer: {channel_id}")
     except (ValueError, TypeError):
+        print("ERROR: Invalid channel ID. Cannot convert to integer.")
         return {"status": "error", "error": "Invalid channel ID."}, 500
 
     try:
         photo_data = await photo.read()
+        print(f"DEBUG: Photo data read. Size: {len(photo_data)} bytes.")
+        
         score = random.randint(0, 100)
         
         channel = client.get_channel(channel_id)
         if not channel:
+            print(f"ERROR: Channel not found. Is the ID correct? ID: {channel_id}")
             return {"status": "error", "error": "Invalid channel ID or channel not found."}, 500
+        
+        print("DEBUG: Channel object found. Proceeding with send.")
 
         message_content = (
             f"**新しい写真がアップロードされました！**\n"
@@ -68,9 +78,9 @@ async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...))
         discord_file = discord.File(photo_data, filename="uploaded_photo.jpg")
 
         await channel.send(content=message_content, file=discord_file)
-        print("Sent image and message to Discord.")
+        print("SUCCESS: Image and message sent to Discord.")
 
         return {"status": "success", "message": "Upload received and processing"}
     except Exception as e:
-        print(f"Error processing upload: {e}")
+        print(f"ERROR: Error processing upload: {e}")
         return {"status": "error", "error": str(e)}, 500
