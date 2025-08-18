@@ -1,3 +1,5 @@
+fastapi
+uvicorn
+python-multipart
 discord.py
-aiohttp
 python-dotenv
