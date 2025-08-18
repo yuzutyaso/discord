@@ -2,7 +2,7 @@ import os
 import discord
 import asyncio
 import random
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 
 # FastAPIアプリの初期化
 app = FastAPI()
@@ -11,72 +11,60 @@ app = FastAPI()
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
 
-# グローバル変数としてBotクライアントを初期化
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
-
-# Botが起動済みかを確認するフラグ
-bot_is_running = False
-
-@app.on_event("startup")
-async def startup_event():
-    """アプリケーション起動時にBotを一度だけ起動する"""
-    global bot_is_running
-    if not bot_is_running:
-        try:
-            # Botのバックグラウンドタスクを開始
-            asyncio.create_task(client.start(DISCORD_BOT_TOKEN))
-            bot_is_running = True
-            print("INFO: Discord Bot startup task created.")
-        except Exception as e:
-            print(f"ERROR: Error starting Discord Bot: {e}")
-
 @app.post("/api/upload")
 async def upload_photo(userName: str = Form(...), photo: UploadFile = File(...)):
-    print("DEBUG: Received upload request.")
-    if not client.is_ready():
-        print("DEBUG: Bot is not ready, waiting...")
-        try:
-            # Botがまだ準備できていない場合は待機
-            await asyncio.wait_for(client.wait_until_ready(), timeout=15.0)
-            print("DEBUG: Bot is now ready.")
-        except asyncio.TimeoutError:
-            print("ERROR: Bot failed to connect to Discord in time.")
-            return {"status": "error", "error": "Bot connection timeout."}, 500
+    if not DISCORD_BOT_TOKEN or not DISCORD_CHANNEL_ID:
+        raise HTTPException(status_code=500, detail="Discord environment variables not set.")
+
+    intents = discord.Intents.default()
+    client = discord.Client(intents=intents)
 
     # チャンネルIDを整数に変換
     try:
         channel_id = int(DISCORD_CHANNEL_ID)
-        print(f"DEBUG: Channel ID successfully converted to integer: {channel_id}")
     except (ValueError, TypeError):
-        print("ERROR: Invalid channel ID. Cannot convert to integer.")
-        return {"status": "error", "error": "Invalid channel ID."}, 500
+        raise HTTPException(status_code=500, detail="Invalid channel ID. Cannot convert to integer.")
+
+    async def send_to_discord():
+        try:
+            # BotをDiscordに接続
+            await client.login(DISCORD_BOT_TOKEN)
+            await client.wait_until_ready()
+            
+            # メッセージ送信処理
+            photo_data = await photo.read()
+            score = random.randint(0, 100)
+            
+            channel = client.get_channel(channel_id)
+            if not channel:
+                raise HTTPException(status_code=500, detail=f"Channel with ID {channel_id} not found.")
+
+            message_content = (
+                f"**新しい写真がアップロードされました！**\n"
+                f"**アップロードした人:** {userName}\n"
+                f"**ランダムな点数:** {score}点"
+            )
+            
+            discord_file = discord.File(photo_data, filename="uploaded_photo.jpg")
+
+            await channel.send(content=message_content, file=discord_file)
+            print("SUCCESS: Image and message sent to Discord.")
+
+        except discord.errors.LoginFailure:
+            raise HTTPException(status_code=401, detail="Invalid Discord Bot Token.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"ERROR: Error processing upload: {e}")
+            raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+        finally:
+            # 処理が完了したら接続を閉じる
+            if not client.is_closed():
+                await client.close()
 
     try:
-        photo_data = await photo.read()
-        print(f"DEBUG: Photo data read. Size: {len(photo_data)} bytes.")
-        
-        score = random.randint(0, 100)
-        
-        channel = client.get_channel(channel_id)
-        if not channel:
-            print(f"ERROR: Channel not found. Is the ID correct? ID: {channel_id}")
-            return {"status": "error", "error": "Invalid channel ID or channel not found."}, 500
-        
-        print("DEBUG: Channel object found. Proceeding with send.")
-
-        message_content = (
-            f"**新しい写真がアップロードされました！**\n"
-            f"**アップロードした人:** {userName}\n"
-            f"**ランダムな点数:** {score}点"
-        )
-        
-        discord_file = discord.File(photo_data, filename="uploaded_photo.jpg")
-
-        await channel.send(content=message_content, file=discord_file)
-        print("SUCCESS: Image and message sent to Discord.")
-
+        # 非同期タスクとして実行
+        await send_to_discord()
         return {"status": "success", "message": "Upload received and processing"}
-    except Exception as e:
-        print(f"ERROR: Error processing upload: {e}")
-        return {"status": "error", "error": str(e)}, 500
+    except HTTPException as e:
+        return {"status": "error", "error": e.detail}, e.status_code
