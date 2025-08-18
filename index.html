@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>顔面偏差値シュミレーター</title>
+    <title>顔面偏差値</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -101,7 +101,7 @@
             if (response.ok) {
                 messageElement.textContent = '送信完了しました！';
                 messageElement.style.color = '#28a745';
-                form.reset(); // フォームをリセット
+                form.reset();
             } else {
                 messageElement.textContent = `エラー: ${result.error || '不明なエラー'}`;
                 messageElement.style.color = '#dc3545';
